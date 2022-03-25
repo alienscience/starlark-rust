@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-use gazebo::prelude::*;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::*;
@@ -35,7 +34,8 @@ pub(crate) fn is_type_name(x: &Type, name: &str) -> bool {
 }
 
 pub(crate) fn ident_string(x: &Ident) -> String {
-    x.to_string().trim_start_match("r#").to_owned()
+    let x = x.to_string();
+    x.strip_prefix("r#").map(str::to_owned).unwrap_or(x)
 }
 
 pub(crate) fn mut_token(x: bool) -> TokenStream {

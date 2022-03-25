@@ -325,23 +325,24 @@ fn parse_fun(func: ItemFn) -> syn::Result<StarStmt> {
 
 fn parse_arg(x: FnArg) -> syn::Result<StarArg> {
     let span = x.span();
-    match x {
-        FnArg::Typed(PatType {
-            attrs,
-            pat: box Pat::Ident(ident),
-            ty: box ty,
-            ..
-        }) => Ok(StarArg {
-            span,
-            attrs,
-            mutable: ident.mutability.is_some(),
-            name: ident.ident,
-            by_ref: ident.by_ref.is_some(),
-            ty,
-            default: ident.subpat.map(|x| *x.1),
-            source: StarArgSource::Unknown,
-        }),
-        arg => panic!("Unexpected argument, {:?}", arg),
+    if let FnArg::Typed(PatType { attrs, pat, ty, .. }) = x {
+        if let Pat::Ident(ident) = *pat {
+            let ty = *ty;
+            Ok(StarArg {
+                span,
+                attrs,
+                mutable: ident.mutability.is_some(),
+                name: ident.ident,
+                by_ref: ident.by_ref.is_some(),
+                ty,
+                default: ident.subpat.map(|x| *x.1),
+                source: StarArgSource::Unknown,
+            })
+        } else {
+            panic!("Unexpected pattern, {:?} in span {:?}", *pat, span);
+        }
+    } else {
+        panic!("Unexpected argument, {:?}", x);
     }
 }
 
