@@ -20,6 +20,7 @@ use std::{
     fs::File,
     io,
     io::Write,
+    ops::Deref,
     path::Path,
     slice,
     time::{Duration, Instant},
@@ -153,13 +154,14 @@ impl<'v> FlameProfile<'v> {
     }
 
     pub(crate) fn enable(&mut self) {
-        self.0 = Some(box FlameData::default());
+        self.0 = Some(Box::new(FlameData::default()));
     }
 
     #[cold]
     #[inline(never)]
     pub fn record_call_enter(&mut self, function: Value<'v>) {
-        if let Some(box x) = &mut self.0 {
+        if let Some(x) = &mut self.0 {
+            let x = x.deref();
             let ind = match x.map.entry(ValuePtr::new(function)) {
                 Entry::Occupied(e) => *e.get(),
                 Entry::Vacant(e) => {
@@ -176,7 +178,8 @@ impl<'v> FlameProfile<'v> {
     #[cold]
     #[inline(never)]
     pub fn record_call_exit(&mut self) {
-        if let Some(box x) = &mut self.0 {
+        if let Some(x) = &mut self.0 {
+            let x = x.deref();
             x.frames.push((Frame::Pop, Instant::now()))
         }
     }
@@ -185,7 +188,7 @@ impl<'v> FlameProfile<'v> {
     pub(crate) fn write(&self, filename: &Path) -> Option<anyhow::Result<()>> {
         self.0
             .as_ref()
-            .map(|box x| Self::write_enabled(x, filename))
+            .map(|x| Self::write_enabled(x.deref(), filename))
     }
 
     fn write_enabled(x: &FlameData, filename: &Path) -> anyhow::Result<()> {

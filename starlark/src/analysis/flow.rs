@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::ops::Deref;
+
 use gazebo::variants::VariantName;
 use thiserror::Error;
 
@@ -86,7 +88,10 @@ fn final_return(x: &AstStmt) -> bool {
             None => false,
             Some(x) => final_return(x),
         },
-        Stmt::IfElse(_, box (x, y)) => final_return(x) && final_return(y),
+        Stmt::IfElse(_, xy) => {
+            let (x, y) = xy.deref();
+            final_return(x) && final_return(y)
+        }
         _ => false,
     }
 }
@@ -169,7 +174,8 @@ fn reachable(codemap: &CodeMap, x: &AstStmt, res: &mut Vec<LintT<FlowIssue>>) ->
             }
             false
         }
-        Stmt::IfElse(_, box (x, y)) => {
+        Stmt::IfElse(_, xy) => {
+            let (x, y) = xy.deref();
             let abort1 = reachable(codemap, x, res);
             let abort2 = reachable(codemap, y, res);
             abort1 && abort2
@@ -200,8 +206,9 @@ fn redundant(codemap: &CodeMap, x: &AstStmt, res: &mut Vec<LintT<FlowIssue>>) {
             Stmt::Statements(xs) if !xs.is_empty() => {
                 check(is_loop, codemap, xs.last().unwrap(), res)
             }
-            Stmt::If(_, box x) => check(is_loop, codemap, x, res),
-            Stmt::IfElse(_, box (x, y)) => {
+            Stmt::If(_, x) => check(is_loop, codemap, x.deref(), res),
+            Stmt::IfElse(_, xy) => {
+                let (x, y) = xy.deref();
                 check(is_loop, codemap, x, res);
                 check(is_loop, codemap, y, res);
             }
@@ -211,7 +218,10 @@ fn redundant(codemap: &CodeMap, x: &AstStmt, res: &mut Vec<LintT<FlowIssue>>) {
 
     fn f(codemap: &CodeMap, x: &AstStmt, res: &mut Vec<LintT<FlowIssue>>) {
         match &**x {
-            Stmt::For(_, box (_, body)) => check(true, codemap, body, res),
+            Stmt::For(_, ib) => {
+                let (_, body) = ib.deref();
+                check(true, codemap, body, res)
+            }
             Stmt::Def(_, _, _, body, _payload) => check(false, codemap, body, res),
             _ => {}
         }

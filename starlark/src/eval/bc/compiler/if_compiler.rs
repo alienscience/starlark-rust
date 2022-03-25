@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::ops::Deref;
+
 use crate::eval::{
     bc::{instrs::PatchAddr, writer::BcWriter},
     fragment::{
@@ -154,10 +156,12 @@ fn write_cond(
         ExprCompiled::Not(cond) => {
             write_cond(cond, maybe_not.negate(), t, f, bc);
         }
-        ExprCompiled::And(box (x, y)) => {
+        ExprCompiled::And(xy) => {
+            let (x, y) = xy.deref();
             write_cond_bin_op(x, y, IfBinOp::And, maybe_not, t, f, bc);
         }
-        ExprCompiled::Or(box (x, y)) => {
+        ExprCompiled::Or(xy) => {
+            let (x, y) = xy.deref();
             write_cond_bin_op(x, y, IfBinOp::Or, maybe_not, t, f, bc);
         }
         _ => {

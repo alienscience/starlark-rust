@@ -302,7 +302,7 @@ impl GlobalsBuilder {
         self.set(
             name,
             NativeFunction {
-                function: box f,
+                function: Box::new(f),
                 name: name.to_owned(),
                 speculative_exec_safe,
                 typ,
@@ -398,7 +398,7 @@ impl MethodsBuilder {
         self.members.insert(
             name,
             self.heap.alloc(NativeAttribute {
-                function: box f,
+                function: Box::new(f),
                 speculative_exec_safe,
                 docstring,
                 typ,
@@ -429,7 +429,7 @@ impl MethodsBuilder {
         self.members.insert(
             name,
             self.heap.alloc(NativeMethod {
-                function: box f,
+                function: Box::new(f),
                 name: name.to_owned(),
                 typ,
                 speculative_exec_safe,

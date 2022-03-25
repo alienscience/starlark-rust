@@ -182,11 +182,11 @@ impl StmtProfile {
     }
 
     pub fn enable(&mut self) {
-        self.0 = Some(box StmtProfileData::new())
+        self.0 = Some(Box::new(StmtProfileData::new()))
     }
 
     pub fn before_stmt(&mut self, span: FileSpanRef) {
-        if let Some(box data) = &mut self.0 {
+        if let Some(data) = &mut self.0 {
             data.before_stmt(span.span, span.file)
         }
     }

@@ -17,7 +17,7 @@
 
 //! Compile function calls.
 
-use std::convert::TryInto;
+use std::{convert::TryInto, ops::Deref};
 
 use either::Either;
 
@@ -119,21 +119,26 @@ impl IrSpanned<CallCompiled> {
         let span = self.span;
         let file_span = bc.alloc_file_span(span);
         match self.node {
-            CallCompiled::Call(box (ref f, ref args)) => match f.as_value() {
-                Some(f) => Self::write_call_frozen(span, f, args, bc),
-                None => {
-                    f.write_bc(bc);
-                    match Self::write_args(args, bc) {
-                        Either::Left(npops) => {
-                            bc.write_instr::<InstrCallPos>(span, (ArgPopsStack1, npops, file_span))
-                        }
-                        Either::Right(args) => {
-                            bc.write_instr::<InstrCall>(span, (ArgPopsStack1, args, file_span));
+            CallCompiled::Call(fargs) => {
+                let (f, args) = fargs.deref();
+                match f.as_value() {
+                    Some(f) => Self::write_call_frozen(span, f, args, bc),
+                    None => {
+                        f.write_bc(bc);
+                        match Self::write_args(args, bc) {
+                            Either::Left(npops) => bc.write_instr::<InstrCallPos>(
+                                span,
+                                (ArgPopsStack1, npops, file_span),
+                            ),
+                            Either::Right(args) => {
+                                bc.write_instr::<InstrCall>(span, (ArgPopsStack1, args, file_span));
+                            }
                         }
                     }
                 }
-            },
-            CallCompiled::Method(box (ref this, ref symbol, ref args)) => {
+            }
+            CallCompiled::Method(tsa) => {
+                let (this, symbol, args) = tsa.deref();
                 this.write_bc(bc);
                 let file_span = bc.alloc_file_span(span);
                 let symbol = symbol.clone();

@@ -21,7 +21,9 @@ use std::{
     cell::UnsafeCell,
     collections::HashMap,
     fmt::{self, Display, Write},
-    mem, ptr,
+    mem,
+    ops::Deref,
+    ptr,
 };
 
 use derivative::Derivative;
@@ -283,17 +285,20 @@ impl Compiler<'_, '_, '_> {
     fn is_return_type_is(stmt: &StmtsCompiled) -> Option<FrozenStringValue> {
         match stmt.first().map(|s| &s.node) {
             Some(StmtCompiled::Return(IrSpanned {
-                node:
-                    ExprCompiled::TypeIs(
-                        box IrSpanned {
-                            // Slot 0 is a slot for the first function argument.
-                            node: ExprCompiled::Local(LocalSlotId(0), ..),
-                            ..
-                        },
-                        t,
-                    ),
+                node: ExprCompiled::TypeIs(spanned, t),
                 ..
-            })) => Some(*t),
+            })) => {
+                if let IrSpanned {
+                    // Slot 0 is a slot for the first function argument.
+                    node: ExprCompiled::Local(LocalSlotId(0), ..),
+                    ..
+                } = spanned.deref()
+                {
+                    Some(*t)
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }
@@ -320,10 +325,10 @@ impl Compiler<'_, '_, '_> {
             | ExprCompiled::Call(..)
             | ExprCompiled::Def(..) => return None,
             ExprCompiled::Type(v) => {
-                ExprCompiled::Type(box Compiler::is_safe_to_inline_expr_spanned(v)?)
+                ExprCompiled::Type(Box::new(Compiler::is_safe_to_inline_expr_spanned(v)?))
             }
             ExprCompiled::TypeIs(ref v, t) => {
-                ExprCompiled::TypeIs(box Compiler::is_safe_to_inline_expr_spanned(v)?, *t)
+                ExprCompiled::TypeIs(Box::new(Compiler::is_safe_to_inline_expr_spanned(v)?), *t)
             }
             ExprCompiled::Tuple(xs) => ExprCompiled::Tuple(
                 xs.try_map(|x| Compiler::is_safe_to_inline_expr_spanned(x).ok_or(()))
@@ -338,36 +343,41 @@ impl Compiler<'_, '_, '_> {
                 // Dict construction may fail if keys are not hashable.
                 return None;
             }
-            ExprCompiled::If(box (ref c, ref t, ref f)) => {
+            ExprCompiled::If(ctf) => {
+                let (c, t, f) = ctf.deref();
                 let c = Compiler::is_safe_to_inline_expr_spanned(c)?;
                 let t = Compiler::is_safe_to_inline_expr_spanned(t)?;
                 let f = Compiler::is_safe_to_inline_expr_spanned(f)?;
-                ExprCompiled::If(box (c, t, f))
+                ExprCompiled::If(Box::new((c, t, f)))
             }
             ExprCompiled::Not(ref x) => {
                 let x = Compiler::is_safe_to_inline_expr_spanned(x)?;
-                ExprCompiled::Not(box x)
+                ExprCompiled::Not(Box::new(x))
             }
-            ExprCompiled::And(box (ref x, ref y)) => {
+            ExprCompiled::And(xy) => {
+                let (x, y) = xy.deref();
                 let x = Compiler::is_safe_to_inline_expr_spanned(x)?;
                 let y = Compiler::is_safe_to_inline_expr_spanned(y)?;
-                ExprCompiled::And(box (x, y))
+                ExprCompiled::And(Box::new((x, y)))
             }
-            ExprCompiled::Or(box (ref x, ref y)) => {
+            ExprCompiled::Or(xy) => {
+                let (x, y) = xy.deref();
                 let x = Compiler::is_safe_to_inline_expr_spanned(x)?;
                 let y = Compiler::is_safe_to_inline_expr_spanned(y)?;
-                ExprCompiled::Or(box (x, y))
+                ExprCompiled::Or(Box::new((x, y)))
             }
-            ExprCompiled::Seq(box (ref x, ref y)) => {
+            ExprCompiled::Seq(xy) => {
+                let (x, y) = xy.deref();
                 let x = Compiler::is_safe_to_inline_expr_spanned(x)?;
                 let y = Compiler::is_safe_to_inline_expr_spanned(y)?;
-                ExprCompiled::Seq(box (x, y))
+                ExprCompiled::Seq(Box::new((x, y)))
             }
             ExprCompiled::PercentSOne(..) => return None,
-            ExprCompiled::FormatOne(box (before, ref v, after)) => {
+            ExprCompiled::FormatOne(bva) => {
+                let (before, v, after) = bva.deref();
                 // `FormatOne` is infallible, unlike `PercentSOne`.
                 let v = Compiler::is_safe_to_inline_expr_spanned(v)?;
-                ExprCompiled::FormatOne(box (*before, v, *after))
+                ExprCompiled::FormatOne(Box::new((*before, v, *after)))
             }
         })
     }
@@ -434,7 +444,7 @@ impl Compiler<'_, '_, '_> {
         // The parameters run in the scope of the parent, so compile them with the outer
         // scope
         let params = params.into_map(|x| self.parameter(x));
-        let return_type = return_type.map(|return_type| box self.expr(*return_type));
+        let return_type = return_type.map(|return_type| Box::new(self.expr(*return_type)));
 
         self.enter_scope(scope_id);
 
@@ -558,7 +568,6 @@ impl<'v, T1: ValueLike<'v>> DefGen<T1> {
             return_type,
             self.def_info.docstring.as_ref().map(String::as_ref),
         );
-
 
         Some(DocItem::Function(function_docs))
     }

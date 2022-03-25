@@ -17,6 +17,8 @@
 
 //! Compile comprehensions.
 
+use std::ops::Deref;
+
 use crate::eval::{
     bc::{
         compiler::if_compiler::write_if_then,
@@ -69,7 +71,8 @@ impl ComprCompiled {
     pub(crate) fn write_bc(&self, span: FrozenFileSpan, bc: &mut BcWriter) {
         let ss = bc.stack_size();
         match *self {
-            ComprCompiled::List(box ref expr, ref clauses) => {
+            ComprCompiled::List(expr, ref clauses) => {
+                let expr = expr.deref();
                 bc.write_instr::<InstrListNew>(span, ());
                 let (first, rem) = clauses.split_last();
                 first.write_bc(bc, rem, |bc| {
@@ -77,7 +80,8 @@ impl ComprCompiled {
                     bc.write_instr::<InstrComprListAppend>(expr.span, ());
                 });
             }
-            ComprCompiled::Dict(box (ref k, ref v), ref clauses) => {
+            ComprCompiled::Dict(kv, ref clauses) => {
+                let (k, v) = kv.deref();
                 bc.write_instr::<InstrDictNew>(span, ());
                 let (first, rem) = clauses.split_last();
                 first.write_bc(bc, rem, |bc| {

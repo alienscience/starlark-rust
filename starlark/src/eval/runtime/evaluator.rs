@@ -17,7 +17,6 @@
 
 use std::{
     cell::Cell,
-    intrinsics::unlikely,
     mem::{self, MaybeUninit},
     path::Path,
 };
@@ -212,7 +211,6 @@ impl<'v, 'a> Evaluator<'v, 'a> {
         }
     }
 
-
     /// Generate instructions to invoke before stmt callbacks when evaluating the module,
     /// even if this module does not use any such callbacks.
     ///
@@ -328,14 +326,14 @@ impl<'v, 'a> Evaluator<'v, 'a> {
         }
 
         self.call_stack.push(function, span)?;
-        if unlikely(self.heap_or_flame_profile) {
+        if self.heap_or_flame_profile {
             self.heap_profile.record_call_enter(function, self.heap());
             self.flame_profile.record_call_enter(function);
         }
         // Must always call .pop regardless
         let res = within(self).map_err(|e| add_diagnostics(e, self));
         self.call_stack.pop();
-        if unlikely(self.heap_or_flame_profile) {
+        if self.heap_or_flame_profile {
             self.heap_profile.record_call_exit(self.heap());
             self.flame_profile.record_call_exit();
         }

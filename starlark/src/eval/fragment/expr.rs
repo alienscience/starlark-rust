@@ -16,7 +16,7 @@
  */
 
 //! Evaluation of an expression.
-use std::cmp::Ordering;
+use std::{cmp::Ordering, ops::Deref};
 
 use gazebo::prelude::*;
 use thiserror::Error;
@@ -293,11 +293,16 @@ impl ExprCompiled {
             Self::Type(x) => x.is_pure_infallible(),
             Self::TypeIs(x, _t) => x.is_pure_infallible(),
             Self::Not(x) => x.is_pure_infallible(),
-            Self::Seq(box (x, y)) => x.is_pure_infallible() && y.is_pure_infallible(),
-            Self::Or(box (x, y)) | Self::And(box (x, y)) => {
+            Self::Seq(xy) => {
+                let (x, y) = xy.deref();
                 x.is_pure_infallible() && y.is_pure_infallible()
             }
-            Self::If(box (cond, x, y)) => {
+            Self::Or(xy) | Self::And(xy) => {
+                let (x, y) = xy.deref();
+                x.is_pure_infallible() && y.is_pure_infallible()
+            }
+            Self::If(cxy) => {
+                let (cond, x, y) = cxy.deref();
                 cond.is_pure_infallible() && x.is_pure_infallible() && y.is_pure_infallible()
             }
             _ => false,
@@ -317,7 +322,8 @@ impl ExprCompiled {
             // TODO(nga): if keys are unique hashable constants, we can fold this to constant too.
             ExprCompiled::Dict(xs) if xs.is_empty() => Some(false),
             ExprCompiled::Not(x) => x.is_pure_infallible_to_bool().map(|x| !x),
-            ExprCompiled::And(box (x, y)) => {
+            ExprCompiled::And(xy) => {
+                let (x, y) = xy.deref();
                 match (
                     x.is_pure_infallible_to_bool(),
                     y.is_pure_infallible_to_bool(),
@@ -327,7 +333,8 @@ impl ExprCompiled {
                     (None, _) => None,
                 }
             }
-            ExprCompiled::Or(box (x, y)) => {
+            ExprCompiled::Or(xy) => {
+                let (x, y) = xy.deref();
                 match (
                     x.is_pure_infallible_to_bool(),
                     y.is_pure_infallible_to_bool(),
@@ -361,19 +368,28 @@ impl IrSpanned<ExprCompiled> {
                     Some(v) => ExprCompiled::Value(v),
                 }
             }
-            ExprCompiled::Equals(box (ref l, ref r)) => {
+            ExprCompiled::Equals(lr) => {
+                let (l, r) = lr.deref();
                 let l = l.optimize_on_freeze(ctx);
                 let r = r.optimize_on_freeze(ctx);
                 eval_equals(l, r)
             }
-            ExprCompiled::Compare(box (ref l, ref r), cmp) => {
+            ExprCompiled::Compare(lr, cmp) => {
+                let (l, r) = lr.deref();
                 let l = l.optimize_on_freeze(ctx);
                 let r = r.optimize_on_freeze(ctx);
                 ExprCompiled::compare(l, r, cmp)
             }
-            ExprCompiled::Type(box ref e) => ExprCompiled::typ(e.optimize_on_freeze(ctx)),
-            ExprCompiled::Len(box ref e) => ExprCompiled::len(e.optimize_on_freeze(ctx)),
-            ExprCompiled::TypeIs(box ref e, t) => {
+            ExprCompiled::Type(e) => {
+                let e = e.deref();
+                ExprCompiled::typ(e.optimize_on_freeze(ctx))
+            }
+            ExprCompiled::Len(e) => {
+                let e = e.deref();
+                ExprCompiled::len(e.optimize_on_freeze(ctx))
+            }
+            ExprCompiled::TypeIs(e, t) => {
+                let e = e.deref();
                 ExprCompiled::type_is(e.optimize_on_freeze(ctx), t)
             }
             ExprCompiled::Tuple(ref xs) => {
@@ -384,31 +400,38 @@ impl IrSpanned<ExprCompiled> {
                 kvs.map(|(k, v)| (k.optimize_on_freeze(ctx), v.optimize_on_freeze(ctx))),
             ),
             ExprCompiled::Compr(ref compr) => compr.optimize_on_freeze(ctx),
-            ExprCompiled::Dot(box ref object, ref field) => ExprCompiled::dot(
-                object.optimize_on_freeze(ctx),
-                field,
-                ctx.heap,
-                ctx.frozen_heap,
-            ),
-            ExprCompiled::ArrayIndirection(box (ref array, ref index)) => {
+            ExprCompiled::Dot(object, ref field) => {
+                let object = object.deref();
+                ExprCompiled::dot(
+                    object.optimize_on_freeze(ctx),
+                    field,
+                    ctx.heap,
+                    ctx.frozen_heap,
+                )
+            }
+            ExprCompiled::ArrayIndirection(ai) => {
+                let (array, index) = ai.deref();
                 let array = array.optimize_on_freeze(ctx);
                 let index = index.optimize_on_freeze(ctx);
                 ExprCompiled::array_indirection(array, index, ctx.heap, ctx.frozen_heap)
             }
-            ExprCompiled::If(box (ref cond, ref t, ref f)) => {
+            ExprCompiled::If(ctf) => {
+                let (cond, t, f) = ctf.deref();
                 let cond = cond.optimize_on_freeze(ctx);
                 let t = t.optimize_on_freeze(ctx);
                 let f = f.optimize_on_freeze(ctx);
                 return ExprCompiled::if_expr(cond, t, f);
             }
-            ExprCompiled::Slice(box (ref v, ref start, ref stop, ref step)) => {
+            ExprCompiled::Slice(vsss) => {
+                let (v, start, stop, step) = vsss.deref();
                 let v = v.optimize_on_freeze(ctx);
                 let start = start.as_ref().map(|x| x.optimize_on_freeze(ctx));
                 let stop = stop.as_ref().map(|x| x.optimize_on_freeze(ctx));
                 let step = step.as_ref().map(|x| x.optimize_on_freeze(ctx));
                 ExprCompiled::slice(span, v, start, stop, step, ctx.heap, ctx.frozen_heap)
             }
-            ExprCompiled::Not(box ref e) => {
+            ExprCompiled::Not(e) => {
+                let e = e.deref();
                 let e = e.optimize_on_freeze(ctx);
                 return ExprCompiled::not(span, e);
             }
@@ -416,33 +439,39 @@ impl IrSpanned<ExprCompiled> {
                 let e = e.optimize_on_freeze(ctx);
                 ExprCompiled::un_op(op, e, ctx.heap, ctx.frozen_heap)
             }
-            ExprCompiled::And(box (ref l, ref r)) => {
+            ExprCompiled::And(lr) => {
+                let (l, r) = lr.deref();
                 let l = l.optimize_on_freeze(ctx);
                 let r = r.optimize_on_freeze(ctx);
                 return ExprCompiled::and(l, r);
             }
-            ExprCompiled::Or(box (ref l, ref r)) => {
+            ExprCompiled::Or(lr) => {
+                let (l, r) = lr.deref();
                 let l = l.optimize_on_freeze(ctx);
                 let r = r.optimize_on_freeze(ctx);
                 return ExprCompiled::or(l, r);
             }
-            ExprCompiled::Seq(box (ref l, ref r)) => {
+            ExprCompiled::Seq(lr) => {
+                let (l, r) = lr.deref();
                 let l = l.optimize_on_freeze(ctx);
                 let r = r.optimize_on_freeze(ctx);
                 return ExprCompiled::seq(l, r);
             }
-            ExprCompiled::Op(op, box (ref l, ref r)) => {
+            ExprCompiled::Op(op, lr) => {
+                let (l, r) = lr.deref();
                 let l = l.optimize_on_freeze(ctx);
                 let r = r.optimize_on_freeze(ctx);
                 ExprCompiled::bin_op(op, l, r, ctx.heap, ctx.frozen_heap)
             }
-            ExprCompiled::PercentSOne(box (before, ref arg, after)) => {
+            ExprCompiled::PercentSOne(baa) => {
+                let (before, arg, after) = baa.deref();
                 let arg = arg.optimize_on_freeze(ctx);
-                ExprCompiled::percent_s_one(before, arg, after, ctx.heap, ctx.frozen_heap)
+                ExprCompiled::percent_s_one(*before, arg, *after, ctx.heap, ctx.frozen_heap)
             }
-            ExprCompiled::FormatOne(box (before, ref arg, after)) => {
+            ExprCompiled::FormatOne(baa) => {
+                let (before, arg, after) = baa.deref();
                 let arg = arg.optimize_on_freeze(ctx);
-                ExprCompiled::format_one(before, arg, after, ctx.heap, ctx.frozen_heap)
+                ExprCompiled::format_one(*before, arg, *after, ctx.heap, ctx.frozen_heap)
             }
             ref d @ ExprCompiled::Def(..) => d.clone(),
             ExprCompiled::Call(ref call) => call.optimize_on_freeze(ctx),
@@ -459,9 +488,12 @@ impl ExprCompiled {
                 span,
             },
             // Collapse `not not e` to `e` only if `e` is known to produce a boolean.
-            ExprCompiled::Not(box ref e) if e.is_definitely_bool() => e.clone(),
+            ExprCompiled::Not(e) if e.is_definitely_bool() => {
+                let e = e.deref();
+                e.clone()
+            }
             _ => IrSpanned {
-                node: ExprCompiled::Not(box expr),
+                node: ExprCompiled::Not(Box::new(expr)),
                 span,
             },
         }
@@ -469,11 +501,15 @@ impl ExprCompiled {
 
     fn or(l: IrSpanned<ExprCompiled>, r: IrSpanned<ExprCompiled>) -> IrSpanned<ExprCompiled> {
         if let Some(l_v) = l.is_pure_infallible_to_bool() {
-            if l_v { l } else { r }
+            if l_v {
+                l
+            } else {
+                r
+            }
         } else {
             let span = l.span.merge(&r.span);
             IrSpanned {
-                node: ExprCompiled::Or(box (l, r)),
+                node: ExprCompiled::Or(Box::new((l, r))),
                 span,
             }
         }
@@ -481,11 +517,15 @@ impl ExprCompiled {
 
     fn and(l: IrSpanned<ExprCompiled>, r: IrSpanned<ExprCompiled>) -> IrSpanned<ExprCompiled> {
         if let Some(l_v) = l.is_pure_infallible_to_bool() {
-            if l_v { r } else { l }
+            if l_v {
+                r
+            } else {
+                l
+            }
         } else {
             let span = l.span.merge(&r.span);
             IrSpanned {
-                node: ExprCompiled::And(box (l, r)),
+                node: ExprCompiled::And(Box::new((l, r))),
                 span,
             }
         }
@@ -500,7 +540,7 @@ impl ExprCompiled {
         } else {
             let span = l.span.merge(&r.span);
             IrSpanned {
-                node: ExprCompiled::Seq(box (l, r)),
+                node: ExprCompiled::Seq(Box::new((l, r))),
                 span,
             }
         }
@@ -519,7 +559,7 @@ impl ExprCompiled {
                 return ExprCompiled::percent_s_one(before, r, after, heap, frozen_heap);
             }
         }
-        ExprCompiled::Op(ExprBinOp::Percent, box (l, r))
+        ExprCompiled::Op(ExprBinOp::Percent, Box::new((l, r)))
     }
 
     pub(crate) fn percent_s_one(
@@ -537,7 +577,7 @@ impl ExprCompiled {
             }
         }
 
-        ExprCompiled::PercentSOne(box (before, arg, after))
+        ExprCompiled::PercentSOne(Box::new((before, arg, after)))
     }
 
     pub(crate) fn format_one(
@@ -552,7 +592,7 @@ impl ExprCompiled {
             let value = frozen_heap.alloc_str(value.as_str());
             return ExprCompiled::Value(value.unpack());
         }
-        ExprCompiled::FormatOne(box (before, arg, after))
+        ExprCompiled::FormatOne(Box::new((before, arg, after)))
     }
 
     fn add(l: IrSpanned<ExprCompiled>, r: IrSpanned<ExprCompiled>) -> ExprCompiled {
@@ -568,7 +608,7 @@ impl ExprCompiled {
                 .collect();
             return ExprCompiled::List(lr);
         }
-        ExprCompiled::Op(ExprBinOp::Add, box (l, r))
+        ExprCompiled::Op(ExprBinOp::Add, Box::new((l, r)))
     }
 
     fn bin_op(
@@ -592,7 +632,7 @@ impl ExprCompiled {
         match bin_op {
             ExprBinOp::Percent => ExprCompiled::percent(l, r, heap, frozen_heap),
             ExprBinOp::Add => ExprCompiled::add(l, r),
-            bin_op => ExprCompiled::Op(bin_op, box (l, r)),
+            bin_op => ExprCompiled::Op(bin_op, Box::new((l, r))),
         }
     }
 
@@ -607,9 +647,13 @@ impl ExprCompiled {
             ExprCompiledBool::Const(true) => t,
             ExprCompiledBool::Const(false) => f,
             ExprCompiledBool::Expr(cond) => match cond {
-                ExprCompiled::Not(box cond) => ExprCompiled::if_expr(cond, f, t),
-                ExprCompiled::Seq(box (x, cond)) => {
-                    ExprCompiled::seq(x, ExprCompiled::if_expr(cond, t, f))
+                ExprCompiled::Not(cond) => {
+                    let cond = cond.deref();
+                    ExprCompiled::if_expr(*cond, f, t)
+                }
+                ExprCompiled::Seq(xcond) => {
+                    let (x, cond) = xcond.deref();
+                    ExprCompiled::seq(*x, ExprCompiled::if_expr(*cond, t, f))
                 }
                 cond => {
                     let cond = IrSpanned {
@@ -618,7 +662,7 @@ impl ExprCompiled {
                     };
                     let span = cond.span.merge(&t.span).merge(&f.span);
                     IrSpanned {
-                        node: ExprCompiled::If(box (cond, t, f)),
+                        node: ExprCompiled::If(Box::new((cond, t, f))),
                         span,
                     }
                 }
@@ -639,7 +683,7 @@ impl ExprCompiled {
                 }
             }
         }
-        ExprCompiled::UnOp(op, box expr)
+        ExprCompiled::UnOp(op, Box::new(expr))
     }
 
     fn try_values(
@@ -687,18 +731,20 @@ impl ExprCompiled {
 
     pub(crate) fn compr(compr: ComprCompiled) -> ExprCompiled {
         match compr {
-            ComprCompiled::List(box x, clauses) => {
+            ComprCompiled::List(x, clauses) => {
+                let x = x.deref();
                 if clauses.is_nop() {
                     ExprCompiled::List(Vec::new())
                 } else {
-                    ExprCompiled::Compr(ComprCompiled::List(box x, clauses))
+                    ExprCompiled::Compr(ComprCompiled::List(Box::new(*x), clauses))
                 }
             }
-            ComprCompiled::Dict(box (k, v), clauses) => {
+            ComprCompiled::Dict(kv, clauses) => {
+                let (k, v) = kv.deref();
                 if clauses.is_nop() {
                     ExprCompiled::Dict(Vec::new())
                 } else {
-                    ExprCompiled::Compr(ComprCompiled::Dict(box (k, v), clauses))
+                    ExprCompiled::Compr(ComprCompiled::Dict(Box::new((*k, *v)), clauses))
                 }
             }
         }
@@ -744,7 +790,7 @@ impl ExprCompiled {
             }
         }
 
-        ExprCompiled::Dot(box object, field.clone())
+        ExprCompiled::Dot(Box::new(object), field.clone())
     }
 
     fn slice(
@@ -773,7 +819,7 @@ impl ExprCompiled {
                 }
             }
         }
-        ExprCompiled::Slice(box (array, start, stop, step))
+        ExprCompiled::Slice(Box::new((array, start, stop, step)))
     }
 
     fn array_indirection(
@@ -790,7 +836,7 @@ impl ExprCompiled {
                 }
             }
         }
-        ExprCompiled::ArrayIndirection(box (array, index))
+        ExprCompiled::ArrayIndirection(Box::new((array, index)))
     }
 
     pub(crate) fn typ(v: IrSpanned<ExprCompiled>) -> ExprCompiled {
@@ -814,7 +860,7 @@ impl ExprCompiled {
             ExprCompiled::Not(x) if x.is_pure_infallible() => {
                 ExprCompiled::Value(StarlarkBool::get_type_value_static().unpack())
             }
-            _ => ExprCompiled::Type(box v),
+            _ => ExprCompiled::Type(Box::new(v)),
         }
     }
 
@@ -824,7 +870,7 @@ impl ExprCompiled {
                 v.to_value().get_type() == t.as_str(),
             ));
         }
-        ExprCompiled::TypeIs(box v, t)
+        ExprCompiled::TypeIs(Box::new(v), t)
     }
 
     pub(crate) fn len(arg: IrSpanned<ExprCompiled>) -> ExprCompiled {
@@ -833,7 +879,7 @@ impl ExprCompiled {
                 return ExprCompiled::Value(FrozenValue::new_int(len));
             }
         }
-        ExprCompiled::Len(box arg)
+        ExprCompiled::Len(Box::new(arg))
     }
 
     fn compare(
@@ -848,7 +894,7 @@ impl ExprCompiled {
             }
         }
 
-        ExprCompiled::Compare(box (l, r), cmp)
+        ExprCompiled::Compare(Box::new((l, r)), cmp)
     }
 }
 
@@ -915,7 +961,7 @@ fn eval_equals(l: IrSpanned<ExprCompiled>, r: IrSpanned<ExprCompiled>) -> ExprCo
         Err((r, l)) => (r, l),
     };
 
-    ExprCompiled::Equals(box (l, r))
+    ExprCompiled::Equals(Box::new((l, r)))
 }
 
 impl AstLiteral {
@@ -1087,10 +1133,11 @@ impl Compiler<'_, '_, '_> {
         };
         let expr = match expr.node {
             ExprP::Identifier(ident, resolved_ident) => self.expr_ident(ident, resolved_ident),
-            ExprP::Lambda(params, box inner, scope_id) => {
+            ExprP::Lambda(params, inner, scope_id) => {
+                let inner = inner.deref();
                 let suite = Spanned {
                     span: expr.span,
-                    node: StmtP::Return(Some(inner)),
+                    node: StmtP::Return(Some(*inner)),
                 };
                 self.function("lambda", scope_id, params, None, suite)
             }
@@ -1106,10 +1153,11 @@ impl Compiler<'_, '_, '_> {
                 let xs = exprs.into_map(|(k, v)| (self.expr(k), self.expr(v)));
                 ExprCompiled::Dict(xs)
             }
-            ExprP::If(box (cond, then_expr, else_expr)) => {
-                let cond = self.expr(cond);
-                let then_expr = self.expr(then_expr);
-                let else_expr = self.expr(else_expr);
+            ExprP::If(cte) => {
+                let (cond, then_expr, else_expr) = cte.deref();
+                let cond = self.expr(*cond);
+                let then_expr = self.expr(*then_expr);
+                let else_expr = self.expr(*else_expr);
                 return ExprCompiled::if_expr(cond, then_expr, else_expr);
             }
             ExprP::Dot(left, right) => {
@@ -1123,10 +1171,14 @@ impl Compiler<'_, '_, '_> {
                     self.eval.module_env.frozen_heap(),
                 )
             }
-            ExprP::Call(box left, args) => self.expr_call(span, left, args),
-            ExprP::ArrayIndirection(box (array, index)) => {
-                let array = self.expr(array);
-                let index = self.expr(index);
+            ExprP::Call(left, args) => {
+                let left = left.deref();
+                self.expr_call(span, *left, args)
+            }
+            ExprP::ArrayIndirection(ai) => {
+                let (array, index) = ai.deref();
+                let array = self.expr(*array);
+                let index = self.expr(*index);
                 ExprCompiled::array_indirection(
                     array,
                     index,
@@ -1319,11 +1371,14 @@ impl Compiler<'_, '_, '_> {
                     }
                 }
             }
-            ExprP::ListComprehension(x, box for_, clauses) => {
-                self.list_comprehension(*x, for_, clauses)
+            ExprP::ListComprehension(x, for_, clauses) => {
+                let for_ = for_.deref();
+                self.list_comprehension(*x, *for_, clauses)
             }
-            ExprP::DictComprehension(box (k, v), box for_, clauses) => {
-                self.dict_comprehension(k, v, for_, clauses)
+            ExprP::DictComprehension(kv, for_, clauses) => {
+                let (k, v) = kv.deref();
+                let for_ = for_.deref();
+                self.dict_comprehension(*k, *v, *for_, clauses)
             }
             ExprP::Literal(x) => {
                 let val = x.compile(self.eval.module_env.frozen_heap());

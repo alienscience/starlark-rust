@@ -18,7 +18,6 @@
 use std::{
     alloc::{alloc, dealloc, Layout},
     cell::{Cell, RefCell},
-    intrinsics::likely,
     mem,
     mem::MaybeUninit,
     ptr, slice,
@@ -115,7 +114,7 @@ impl Alloca {
         // If the pointer changed, it means a callback called alloca again,
         // which allocated a new buffer. So we are abandoning the current allocation here,
         // and new allocations will use the new buffer even if the current buffer has space.
-        if likely(self.alloc.get() == stop) {
+        if self.alloc.get() == stop {
             self.alloc.set(old);
         }
 
@@ -135,7 +134,8 @@ impl Alloca {
             for x in data.iter_mut() {
                 x.write(init());
             }
-            let data = unsafe { MaybeUninit::slice_assume_init_mut(data) };
+            // Equivalent of MaybeUninit::slice_assume_init_mut(data) on nightly
+            let data = unsafe { &mut *(data as *mut [MaybeUninit<T>] as *mut [T]) };
             k(data)
         })
     }

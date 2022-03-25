@@ -27,7 +27,6 @@
 use std::{
     fmt,
     fmt::{Debug, Display},
-    intrinsics::unlikely,
 };
 
 use gazebo::prelude::*;
@@ -158,7 +157,7 @@ impl<'v> CallStack<'v> {
         function: Value<'v>,
         span: Option<FrozenRef<'static, FrozenFileSpan>>,
     ) -> anyhow::Result<()> {
-        if unlikely(self.count >= MAX_CALLSTACK_RECURSION) {
+        if self.count >= MAX_CALLSTACK_RECURSION {
             return Err(ControlError::TooManyRecursionLevel.into());
         }
         self.stack[self.count] = CheapFrame { function, span };

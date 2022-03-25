@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Deref};
 
 use gazebo::prelude::*;
 
@@ -163,13 +163,14 @@ fn stmt(x: &AstStmt, res: &mut Vec<Bind>) {
             flow(res)
         }
         Stmt::Expression(x) => expr(x, res),
-        Stmt::If(a, box b) => {
+        Stmt::If(a, b) => {
             expr(a, res);
             flow(res);
-            stmt(b, res);
+            stmt(b.deref(), res);
             flow(res);
         }
-        Stmt::IfElse(a, box (b, c)) => {
+        Stmt::IfElse(a, bc) => {
+            let (b, c) = bc.deref();
             expr(a, res);
             flow(res);
             stmt(b, res);
@@ -199,7 +200,8 @@ fn stmt(x: &AstStmt, res: &mut Vec<Bind>) {
             expr(rhs, res);
             expr_lvalue(lhs, res);
         }
-        Stmt::For(dest, box (inner, body)) => {
+        Stmt::For(dest, ib) => {
+            let (inner, body) = ib.deref();
             expr(inner, res);
             expr_lvalue(dest, res);
             flow(res);

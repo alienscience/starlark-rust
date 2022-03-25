@@ -104,7 +104,7 @@ impl<K, V> SmallMap<K, V> {
         } else {
             SmallMap {
                 entries: VecMap::with_capacity(n),
-                index: Some(box RawTable::with_capacity(n)),
+                index: Some(Box::new(RawTable::with_capacity(n))),
             }
         }
     }
@@ -352,7 +352,7 @@ impl<K, V> SmallMap<K, V> {
         for (i, b) in self.entries.buckets.iter().enumerate() {
             index.insert_no_grow(b.hash.promote(), i);
         }
-        self.index = Some(box index);
+        self.index = Some(Box::new(index));
     }
 
     /// Hasher for index resize.

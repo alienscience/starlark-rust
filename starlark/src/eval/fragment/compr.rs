@@ -17,6 +17,8 @@
 
 //! List/dict/set comprenension evaluation.
 
+use std::ops::Deref;
+
 use gazebo::prelude::*;
 
 use crate::{
@@ -45,7 +47,7 @@ impl Compiler<'_, '_, '_> {
     ) -> ExprCompiled {
         let clauses = self.compile_clauses(for_, clauses);
         let x = self.expr(x);
-        ExprCompiled::compr(ComprCompiled::List(box x, clauses))
+        ExprCompiled::compr(ComprCompiled::List(Box::new(x), clauses))
     }
 
     pub fn dict_comprehension(
@@ -58,7 +60,7 @@ impl Compiler<'_, '_, '_> {
         let clauses = self.compile_clauses(for_, clauses);
         let k = self.expr(k);
         let v = self.expr(v);
-        ExprCompiled::compr(ComprCompiled::Dict(box (k, v), clauses))
+        ExprCompiled::compr(ComprCompiled::Dict(Box::new((k, v)), clauses))
     }
 
     /// Peel the final if's from clauses, and return them (in the order they started), plus the next for you get to
@@ -134,14 +136,19 @@ pub(crate) enum ComprCompiled {
 impl ComprCompiled {
     pub(crate) fn optimize_on_freeze(&self, ctx: &OptimizeOnFreezeContext) -> ExprCompiled {
         match self {
-            ComprCompiled::List(box ref x, ref clauses) => {
+            ComprCompiled::List(x, ref clauses) => {
+                let x = x.deref();
                 let clauses = clauses.optimize_on_freeze(ctx);
-                ExprCompiled::compr(ComprCompiled::List(box x.optimize_on_freeze(ctx), clauses))
+                ExprCompiled::compr(ComprCompiled::List(
+                    Box::new(x.optimize_on_freeze(ctx)),
+                    clauses,
+                ))
             }
-            ComprCompiled::Dict(box (ref k, ref v), ref clauses) => {
+            ComprCompiled::Dict(kv, ref clauses) => {
+                let (k, v) = kv.deref();
                 let clauses = clauses.optimize_on_freeze(ctx);
                 ExprCompiled::compr(ComprCompiled::Dict(
-                    box (k.optimize_on_freeze(ctx), v.optimize_on_freeze(ctx)),
+                    Box::new((k.optimize_on_freeze(ctx), v.optimize_on_freeze(ctx))),
                     clauses.optimize_on_freeze(ctx),
                 ))
             }

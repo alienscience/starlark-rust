@@ -23,7 +23,6 @@
 // We want to carefully control the panic message.
 #![allow(clippy::if_then_panic)]
 
-use gazebo::prelude::*;
 use itertools::Itertools;
 
 use crate::{assert::assert::Assert, errors::Diagnostic};
@@ -77,7 +76,17 @@ impl ConformanceTest {
                 error: xs
                     .iter()
                     .find_position(|x| x.contains("###"))
-                    .map(|(i, x)| (i + 1, (**x).split1("###").1.trim_start().to_owned())),
+                    .map(|(i, x)| {
+                        let x = *x;
+                        (
+                            i + 1,
+                            x.split_once("###")
+                                .map(|spl| spl.1)
+                                .unwrap_or(x)
+                                .trim_start()
+                                .to_owned(),
+                        )
+                    }),
             })
             .collect()
     }

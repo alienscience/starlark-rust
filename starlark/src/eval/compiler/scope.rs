@@ -15,7 +15,12 @@
  * limitations under the License.
  */
 
-use std::{collections::HashMap, convert::TryInto, iter, mem};
+use std::{
+    collections::HashMap,
+    convert::TryInto,
+    iter, mem,
+    ops::{Deref, DerefMut},
+};
 
 use gazebo::dupe::Dupe;
 use indexmap::map::IndexMap;
@@ -330,7 +335,8 @@ impl<'a> Scope<'a> {
             ExprP::ListComprehension(expr, first_for, clauses) => {
                 self.resolve_idents_in_compr(&mut [expr], first_for, clauses)
             }
-            ExprP::DictComprehension(box (k, v), first_for, clauses) => {
+            ExprP::DictComprehension(kv, first_for, clauses) => {
+                let (k, v) = kv.deref_mut();
                 self.resolve_idents_in_compr(&mut [k, v], first_for, clauses)
             }
             _ => expr.visit_expr_mut(|expr| self.resolve_idents_in_expr(expr)),
@@ -516,7 +522,8 @@ impl Stmt {
             StmtP::Assign(dest, _) | StmtP::AssignModify(dest, _, _) => {
                 Assign::collect_defines_lvalue(dest, in_loop, scope_data, result);
             }
-            StmtP::For(dest, box (_, body)) => {
+            StmtP::For(dest, body) => {
+                let (_, body) = body.deref().deref_mut();
                 Assign::collect_defines_lvalue(dest, InLoop::Yes, scope_data, result);
                 StmtP::collect_defines(body, InLoop::Yes, scope_data, result);
             }

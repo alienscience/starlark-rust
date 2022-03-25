@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::ops::Deref;
+
 use crate::{
     eval::{
         bc::{
@@ -127,10 +129,12 @@ impl IrSpanned<StmtCompiled> {
             StmtCompiled::AssignModify(ref lhs, op, ref rhs) => {
                 lhs.write_bc(span, op, rhs, bc);
             }
-            StmtCompiled::If(box (ref c, ref t, ref f)) => {
+            StmtCompiled::If(ctf) => {
+                let (c, t, f) = ctf.deref();
                 Self::write_if_else(c, t, f, compiler, bc);
             }
-            StmtCompiled::For(box (ref assign, ref over, ref body)) => {
+            StmtCompiled::For(aob) => {
+                let (assign, over, body) = aob.deref();
                 over.write_bc(bc);
                 bc.write_for(span, |bc| {
                     assign.write_bc(bc);

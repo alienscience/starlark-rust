@@ -23,7 +23,7 @@
 //! Bazel's .bzl files) or the BUILD file dialect (i.e. used to interpret
 //! Bazel's BUILD file). The BUILD dialect does not allow `def` statements.
 
-use std::mem;
+use std::{mem, ops::Deref};
 
 use anyhow::anyhow;
 use gazebo::prelude::*;
@@ -128,13 +128,15 @@ impl IrSpanned<StmtCompiled> {
                     node: StmtCompiled::Assign(lhs, rhs),
                 })
             }
-            StmtCompiled::If(box (ref cond, ref t, ref f)) => {
+            StmtCompiled::If(ctf) => {
+                let (cond, t, f) = ctf.deref();
                 let cond = cond.optimize_on_freeze(ctx);
                 let t = t.optimize_on_freeze(ctx);
                 let f = f.optimize_on_freeze(ctx);
                 StmtsCompiled::if_stmt(span, cond, t, f)
             }
-            StmtCompiled::For(box (ref var, ref over, ref body)) => {
+            StmtCompiled::For(vob) => {
+                let (var, over, body) = vob.deref();
                 let var = var.optimize_on_freeze(ctx);
                 let over = over.optimize_on_freeze(ctx);
                 let body = body.optimize_on_freeze(ctx);
@@ -254,11 +256,13 @@ impl StmtsCompiled {
                 Self::expr(*x)
             }
             // "And" and "or" for effect are equivalent to `if`.
-            ExprCompiled::And(box (x, y)) => {
-                Self::if_stmt(expr.span, x, Self::expr(y), StmtsCompiled::empty())
+            ExprCompiled::And(xy) => {
+                let (x, y) = xy.deref();
+                Self::if_stmt(expr.span, *x, Self::expr(*y), StmtsCompiled::empty())
             }
-            ExprCompiled::Or(box (x, y)) => {
-                Self::if_stmt(expr.span, x, StmtsCompiled::empty(), Self::expr(y))
+            ExprCompiled::Or(xy) => {
+                let (x, y) = xy.deref();
+                Self::if_stmt(expr.span, *x, StmtsCompiled::empty(), Self::expr(*y))
             }
             expr => StmtsCompiled::one(IrSpanned {
                 span,
@@ -278,11 +282,15 @@ impl StmtsCompiled {
             ExprCompiledBool::Const(true) => t,
             ExprCompiledBool::Const(false) => f,
             ExprCompiledBool::Expr(cond) => match cond {
-                ExprCompiled::Not(box cond) => Self::if_stmt(span, cond, f, t),
-                ExprCompiled::Seq(box (x, cond)) => {
+                ExprCompiled::Not(cond) => {
+                    let cond = cond.deref();
+                    Self::if_stmt(span, *cond, f, t)
+                }
+                ExprCompiled::Seq(xcond) => {
+                    let (x, cond) = xcond.deref();
                     let mut stmt = StmtsCompiled::empty();
-                    stmt.extend(Self::expr(x));
-                    stmt.extend(Self::if_stmt(span, cond, t, f));
+                    stmt.extend(Self::expr(*x));
+                    stmt.extend(Self::if_stmt(span, *cond, t, f));
                     stmt
                 }
                 cond => {
@@ -292,7 +300,7 @@ impl StmtsCompiled {
                     } else {
                         StmtsCompiled::one(IrSpanned {
                             span,
-                            node: StmtCompiled::If(box (cond, t, f)),
+                            node: StmtCompiled::If(Box::new((cond, t, f))),
                         })
                     }
                 }
@@ -311,7 +319,7 @@ impl StmtsCompiled {
         }
         StmtsCompiled::one(IrSpanned {
             span,
-            node: StmtCompiled::For(box (var, over, body)),
+            node: StmtCompiled::For(Box::new((var, over, body))),
         })
     }
 }
@@ -371,9 +379,10 @@ impl Compiler<'_, '_, '_> {
                 let s = s.node;
                 AssignCompiledValue::Dot(e, s)
             }
-            AssignP::ArrayIndirection(box (e, idx)) => {
-                let e = self.expr(e);
-                let idx = self.expr(idx);
+            AssignP::ArrayIndirection(eidx) => {
+                let (e, idx) = eidx.deref();
+                let e = self.expr(*e);
+                let idx = self.expr(*idx);
                 AssignCompiledValue::ArrayIndirection(e, idx)
             }
             AssignP::Tuple(v) => {
@@ -422,9 +431,10 @@ impl Compiler<'_, '_, '_> {
                     node: StmtCompiled::AssignModify(AssignModifyLhs::Dot(e, s.node), op, rhs),
                 })
             }
-            AssignP::ArrayIndirection(box (e, idx)) => {
-                let e = self.expr(e);
-                let idx = self.expr(idx);
+            AssignP::ArrayIndirection(eidx) => {
+                let (e, idx) = eidx.deref();
+                let e = self.expr(*e);
+                let idx = self.expr(*idx);
                 StmtsCompiled::one(IrSpanned {
                     span: span_stmt,
                     node: StmtCompiled::AssignModify(AssignModifyLhs::Array(e, idx), op, rhs),
@@ -525,9 +535,7 @@ pub(crate) fn possible_gc(eval: &mut Evaluator) {
         // When we are at a module scope (as checked above) the eval contains
         // references to all values, so walking covers everything and the unsafe
         // is satisfied.
-        unsafe {
-            eval.garbage_collect()
-        }
+        unsafe { eval.garbage_collect() }
         eval.next_gc_level = eval.heap().allocated_bytes() + GC_THRESHOLD;
     }
 }
@@ -717,11 +725,12 @@ impl Compiler<'_, '_, '_> {
                     node: StmtCompiled::Assign(lhs, rhs),
                 })
             }
-            StmtP::For(var, box (over, body)) => {
-                let over = list_to_tuple(over);
+            StmtP::For(var, ob) => {
+                let (over, body) = ob.deref();
+                let over = list_to_tuple(*over);
                 let var = self.assign(var);
                 let over = self.expr(over);
-                let st = self.stmt(body, false);
+                let st = self.stmt(*body, false);
                 StmtsCompiled::for_stmt(span, var, over, st)
             }
             StmtP::Return(None) => StmtsCompiled::one(IrSpanned {
@@ -735,9 +744,13 @@ impl Compiler<'_, '_, '_> {
                 node: StmtCompiled::Return(self.expr(e)),
                 span,
             }),
-            StmtP::If(cond, box then_block) => self.stmt_if(span, cond, then_block, allow_gc),
-            StmtP::IfElse(cond, box (then_block, else_block)) => {
-                self.stmt_if_else(span, cond, then_block, else_block, allow_gc)
+            StmtP::If(cond, then_block) => {
+                let then_block = then_block.deref();
+                self.stmt_if(span, cond, *then_block, allow_gc)
+            }
+            StmtP::IfElse(cond, te) => {
+                let (then_block, else_block) = te.deref();
+                self.stmt_if_else(span, cond, *then_block, *else_block, allow_gc)
             }
             StmtP::Statements(stmts) => {
                 let mut r = StmtsCompiled::empty();

@@ -18,7 +18,7 @@
 //! Evaluate some code, typically done by creating an [`Evaluator`], then calling
 //! [`eval_module`](Evaluator::eval_module).
 
-use std::{intrinsics::unlikely, mem, time::Instant};
+use std::{mem, time::Instant};
 
 pub(crate) use compiler::scope::ScopeNames;
 pub(crate) use fragment::def::{Def, FrozenDef};
@@ -109,7 +109,7 @@ impl<'v, 'a> Evaluator<'v, 'a> {
         // Set up the world to allow evaluation (do NOT use ? from now on)
 
         self.call_stack.push(Value::new_none(), None).unwrap();
-        if unlikely(self.heap_or_flame_profile) {
+        if self.heap_or_flame_profile {
             self.heap_profile
                 .record_call_enter(Value::new_none(), self.heap());
             self.flame_profile.record_call_enter(Value::new_none());
@@ -131,7 +131,7 @@ impl<'v, 'a> Evaluator<'v, 'a> {
 
         // Clean up the world, putting everything back
         self.call_stack.pop();
-        if unlikely(self.heap_or_flame_profile) {
+        if self.heap_or_flame_profile {
             self.heap_profile.record_call_exit(self.heap());
             self.flame_profile.record_call_exit();
         }

@@ -17,7 +17,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use gazebo::{prelude::*, variants::VariantName};
+use gazebo::variants::VariantName;
 use thiserror::Error;
 
 use crate::{
@@ -259,7 +259,7 @@ fn use_ignored(
                         let defined_at_root =
                             || root.bound.contains_key(&x.node) && scope.free.contains_key(&x.node);
                         let shadows = || {
-                            let suffix = x.trim_start_match('_');
+                            let suffix = x.strip_prefix('_').unwrap_or(x);
                             scope.free.contains_key(suffix) || scope.bound.contains_key(suffix)
                         };
                         if !defined_at_root() && !shadows() {
@@ -282,6 +282,7 @@ fn use_ignored(
 mod tests {
     use super::*;
     use crate::syntax::Dialect;
+    use gazebo::prelude::*;
 
     impl NameWarning {
         fn about(&self) -> &String {

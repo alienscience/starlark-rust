@@ -76,10 +76,6 @@ impl Error for Diagnostic {
         // Therefore, we say we have no source.
         None
     }
-
-    fn backtrace(&self) -> Option<&std::backtrace::Backtrace> {
-        Some(self.message.backtrace())
-    }
 }
 
 impl Diagnostic {

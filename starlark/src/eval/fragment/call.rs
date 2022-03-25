@@ -17,6 +17,8 @@
 
 //! Compile function calls.
 
+use std::ops::Deref;
+
 use gazebo::{coerce::coerce, prelude::*};
 
 use crate::{
@@ -78,7 +80,7 @@ impl CallCompiled {
 
         ExprCompiled::Call(IrSpanned {
             span,
-            node: CallCompiled::Call(box (IrSpanned { span, node: fun }, args)),
+            node: CallCompiled::Call(Box::new((IrSpanned { span, node: fun }, args))),
         })
     }
 }
@@ -86,18 +88,20 @@ impl CallCompiled {
 impl IrSpanned<CallCompiled> {
     pub(crate) fn optimize_on_freeze(&self, ctx: &OptimizeOnFreezeContext) -> ExprCompiled {
         match self.node {
-            CallCompiled::Call(box (ref fun, ref args)) => {
+            CallCompiled::Call(fun_args) => {
+                let (fun, args) = fun_args.deref();
                 let fun = fun.optimize_on_freeze(ctx);
                 let args = args.optimize_on_freeze(ctx);
                 CallCompiled::call(self.span, fun.node, args)
             }
-            CallCompiled::Method(box (ref this, ref field, ref args)) => {
+            CallCompiled::Method(tfa) => {
+                let (this, field, args) = tfa.deref();
                 let this = this.optimize_on_freeze(ctx);
                 let field = field.clone();
                 let args = args.optimize_on_freeze(ctx);
                 ExprCompiled::Call(IrSpanned {
                     span: self.span,
-                    node: CallCompiled::Method(box (this, field, args)),
+                    node: CallCompiled::Method(Box::new((this, field, args))),
                 })
             }
         }
@@ -278,7 +282,7 @@ impl Compiler<'_, '_, '_> {
             let args = self.args(args);
             ExprCompiled::Call(IrSpanned {
                 span,
-                node: CallCompiled::Call(box (left, args)),
+                node: CallCompiled::Call(Box::new((left, args))),
             })
         }
     }
@@ -325,7 +329,7 @@ impl Compiler<'_, '_, '_> {
 
         ExprCompiled::Call(IrSpanned {
             span,
-            node: CallCompiled::Method(box (e, s, args)),
+            node: CallCompiled::Method(Box::new((e, s, args))),
         })
     }
 
@@ -336,7 +340,10 @@ impl Compiler<'_, '_, '_> {
         args: Vec<CstArgument>,
     ) -> ExprCompiled {
         match left.node {
-            ExprP::Dot(box e, s) => self.expr_call_method(span, e, s, args),
+            ExprP::Dot(e, s) => {
+                let e = e.deref();
+                self.expr_call_method(span, *e, s, args)
+            }
             _ => {
                 let expr = self.expr(left);
                 self.expr_call_fun_compiled(span, expr, args)

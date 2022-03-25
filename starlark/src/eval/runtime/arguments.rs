@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::{cell::Cell, cmp, collections::HashMap, convert::TryInto, intrinsics::unlikely, iter};
+use std::{cell::Cell, cmp, collections::HashMap, convert::TryInto, iter};
 
 use either::Either;
 use gazebo::{
@@ -261,7 +261,8 @@ impl<V> ParametersSpec<V> {
                 // displaying the signature.
                 // The `unwrap` is safe because we must have a names entry for each
                 // non-Args/KWargs kind.
-                names.next().unwrap().as_str().trim_start_match('$')
+                let n = names.next().unwrap().as_str();
+                n.strip_prefix('$').unwrap_or(n)
             };
 
             for (i, typ) in self.kinds.iter().enumerate() {
@@ -321,7 +322,7 @@ impl<V> ParametersSpec<V> {
                 }
                 _ => names
                     .get(i - offset)
-                    .map(|s| s.trim_start_match('$'))
+                    .map(|s| s.strip_prefix('$').unwrap_or(s))
                     .expect("name in mapping"),
             };
             (i, name, kind)
@@ -407,7 +408,7 @@ impl<'v, V: ValueLike<'v>> ParametersSpec<V> {
                     None => {
                         let mut mp = SmallMap::with_capacity_largest_vec();
                         mp.insert_hashed(key, val);
-                        self.kwargs = Some(box mp);
+                        self.kwargs = Some(Box::new(mp));
                         false
                     }
                     Some(mp) => mp.insert_hashed(key, val).is_some(),
@@ -487,7 +488,7 @@ impl<'v, V: ValueLike<'v>> ParametersSpec<V> {
         }
 
         // Check if the named arguments clashed with the positional arguments
-        if unlikely(next_position > lowest_name) {
+        if next_position > lowest_name {
             return Err(FunctionError::RepeatedParameter {
                 name: self.param_name_at(lowest_name),
             }
@@ -514,7 +515,7 @@ impl<'v, V: ValueLike<'v>> ParametersSpec<V> {
                                         repeat
                                     }
                                 };
-                                if unlikely(repeat) {
+                                if repeat {
                                     return Err(FunctionError::RepeatedParameter {
                                         name: s.as_str().to_owned(),
                                     }
@@ -562,7 +563,7 @@ impl<'v, V: ValueLike<'v>> ParametersSpec<V> {
         // about unexpected extra parameters, so if a user mis-spells an argument they get a better error.
         if let Some(args_pos) = self.args {
             slots[args_pos].set(Some(heap.alloc_tuple(&star_args)));
-        } else if unlikely(!star_args.is_empty()) {
+        } else if !star_args.is_empty() {
             return Err(FunctionError::ExtraPositionalParameters {
                 count: star_args.len(),
                 function: self.signature(),
@@ -760,7 +761,7 @@ impl<'v, 'a> Arguments<'v, 'a> {
                         let s = Arguments::unpack_kwargs_key_as_value(*k.key())?;
                         let k = Hashed::new_unchecked(k.hash(), s);
                         let old = result.insert_hashed(k, v);
-                        if unlikely(old.is_some()) {
+                        if old.is_some() {
                             return Err(FunctionError::RepeatedParameter {
                                 name: s.as_str().to_owned(),
                             }
@@ -921,7 +922,7 @@ impl<'v, 'a> Arguments<'v, 'a> {
             // Very sad that we allocate into a vector, but I expect calling into a small positional argument
             // with a *args is very rare.
             let args = match x.args {
-                None => box None.into_iter(),
+                None => Box::new(None.into_iter()),
                 Some(args) => args.iterate(heap)?,
             };
             let xs = x.pos.iter().copied().chain(args).collect::<Vec<_>>();

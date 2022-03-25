@@ -17,7 +17,7 @@
 
 //! Compile expressions.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, ops::Deref};
 
 use gazebo::prelude::*;
 
@@ -113,12 +113,14 @@ impl IrSpanned<ExprCompiled> {
 
     fn write_not(expr: &IrSpanned<ExprCompiled>, bc: &mut BcWriter) {
         match expr.node {
-            ExprCompiled::Equals(box (ref a, ref b)) => {
+            ExprCompiled::Equals(ab) => {
+                let (a, b) = ab.deref();
                 a.write_bc(bc);
                 b.write_bc(bc);
                 bc.write_instr::<InstrNotEq>(expr.span, ());
             }
-            ExprCompiled::Op(ExprBinOp::In, box (ref a, ref b)) => {
+            ExprCompiled::Op(ExprBinOp::In, ab) => {
+                let (a, b) = ab.deref();
                 a.write_bc(bc);
                 b.write_bc(bc);
                 bc.write_instr::<InstrNotIn>(expr.span, ());
@@ -145,12 +147,14 @@ impl IrSpanned<ExprCompiled> {
             ExprCompiled::Module(slot) => {
                 bc.write_instr::<InstrLoadModule>(span, slot);
             }
-            ExprCompiled::Equals(box (ref a, ref b)) => {
+            ExprCompiled::Equals(ab) => {
+                let (a, b) = ab.deref();
                 a.write_bc(bc);
                 b.write_bc(bc);
                 bc.write_instr::<InstrEq>(span, ());
             }
-            ExprCompiled::Compare(box (ref l, ref r), cmp) => {
+            ExprCompiled::Compare(lr, cmp) => {
+                let (l, r) = lr.deref();
                 l.write_bc(bc);
                 r.write_bc(bc);
                 match cmp {
@@ -160,15 +164,18 @@ impl IrSpanned<ExprCompiled> {
                     CompareOp::GreaterOrEqual => bc.write_instr::<InstrGreaterOrEqual>(span, ()),
                 }
             }
-            ExprCompiled::Type(box ref expr) => {
+            ExprCompiled::Type(expr) => {
+                let expr = expr.deref();
                 expr.write_bc(bc);
                 bc.write_instr::<InstrType>(span, ());
             }
-            ExprCompiled::Len(box ref expr) => {
+            ExprCompiled::Len(expr) => {
+                let expr = expr.deref();
                 expr.write_bc(bc);
                 bc.write_instr::<InstrLen>(span, ());
             }
-            ExprCompiled::TypeIs(box ref v, t) => {
+            ExprCompiled::TypeIs(v, t) => {
+                let v = v.deref();
                 v.write_bc(bc);
                 bc.write_instr::<InstrTypeIs>(span, t);
             }
@@ -191,16 +198,19 @@ impl IrSpanned<ExprCompiled> {
             ExprCompiled::Compr(ref compr) => {
                 compr.write_bc(span, bc);
             }
-            ExprCompiled::Dot(box ref object, ref field) => {
+            ExprCompiled::Dot(object, ref field) => {
+                let object = object.deref();
                 object.write_bc(bc);
                 bc.write_instr::<InstrObjectField>(span, field.clone());
             }
-            ExprCompiled::ArrayIndirection(box (ref array, ref index)) => {
+            ExprCompiled::ArrayIndirection(ai) => {
+                let (array, index) = ai.deref();
                 array.write_bc(bc);
                 index.write_bc(bc);
                 bc.write_instr::<InstrArrayIndex>(span, ());
             }
-            ExprCompiled::Slice(box (ref l, ref start, ref stop, ref step)) => {
+            ExprCompiled::Slice(slice) => {
+                let (l, start, stop, step) = slice.deref();
                 l.write_bc(bc);
                 write_exprs([start, stop, step].iter().copied().flatten(), bc);
                 bc.write_instr::<InstrSlice>(
@@ -213,7 +223,8 @@ impl IrSpanned<ExprCompiled> {
                     ),
                 );
             }
-            ExprCompiled::Not(box ref expr) => {
+            ExprCompiled::Not(expr) => {
+                let expr = expr.deref();
                 Self::write_not(expr, bc);
             }
             ExprCompiled::UnOp(op, ref expr) => {
@@ -224,7 +235,8 @@ impl IrSpanned<ExprCompiled> {
                     ExprUnOp::BitNot => bc.write_instr::<InstrBitNot>(span, ()),
                 }
             }
-            ExprCompiled::If(box (ref cond, ref t, ref f)) => {
+            ExprCompiled::If(iftr) => {
+                let (cond, t, f) = iftr.deref();
                 write_if_else(
                     cond,
                     |bc| {
@@ -242,7 +254,8 @@ impl IrSpanned<ExprCompiled> {
                 );
                 bc.stack_add(1);
             }
-            ExprCompiled::And(box (ref l, ref r)) => {
+            ExprCompiled::And(lr) => {
+                let (l, r) = lr.deref();
                 l.write_bc(bc);
                 bc.write_instr::<InstrDup>(span, ());
                 bc.write_if(l.span, |bc| {
@@ -250,7 +263,8 @@ impl IrSpanned<ExprCompiled> {
                     r.write_bc(bc);
                 });
             }
-            ExprCompiled::Or(box (ref l, ref r)) => {
+            ExprCompiled::Or(lr) => {
+                let (l, r) = lr.deref();
                 l.write_bc(bc);
                 bc.write_instr::<InstrDup>(span, ());
                 bc.write_if_not(l.span, |bc| {
@@ -258,11 +272,13 @@ impl IrSpanned<ExprCompiled> {
                     r.write_bc(bc);
                 });
             }
-            ExprCompiled::Seq(box (ref l, ref r)) => {
+            ExprCompiled::Seq(lr) => {
+                let (l, r) = lr.deref();
                 l.write_bc_for_effect(bc);
                 r.write_bc(bc);
             }
-            ExprCompiled::Op(op, box (ref l, ref r)) => {
+            ExprCompiled::Op(op, lr) => {
+                let (l, r) = lr.deref();
                 l.write_bc(bc);
                 r.write_bc(bc);
                 match op {
@@ -280,13 +296,15 @@ impl IrSpanned<ExprCompiled> {
                     ExprBinOp::RightShift => bc.write_instr::<InstrRightShift>(span, ()),
                 }
             }
-            ExprCompiled::PercentSOne(box (before, ref arg, after)) => {
+            ExprCompiled::PercentSOne(baa) => {
+                let (before, arg, after) = baa.deref();
                 arg.write_bc(bc);
-                bc.write_instr::<InstrPercentSOne>(span, (before, after));
+                bc.write_instr::<InstrPercentSOne>(span, (*before, *after));
             }
-            ExprCompiled::FormatOne(box (before, ref arg, after)) => {
+            ExprCompiled::FormatOne(baa) => {
+                let (before, arg, after) = baa.deref();
                 arg.write_bc(bc);
-                bc.write_instr::<InstrFormatOne>(span, (before, after));
+                bc.write_instr::<InstrFormatOne>(span, (*before, *after));
             }
             ExprCompiled::Call(ref call) => call.write_bc(bc),
             ExprCompiled::Def(ref def) => def.write_bc(span, bc),

@@ -17,6 +17,8 @@
 
 //! Boolean expression.
 
+use std::ops::Deref;
+
 use crate::{
     eval::{
         fragment::{expr::ExprCompiled, span::IrSpanned},
@@ -72,19 +74,21 @@ impl ExprCompiledBool {
         }
 
         match expr.node {
-            ExprCompiled::Not(box x) => {
-                let x = Self::new(x);
+            ExprCompiled::Not(x) => {
+                let x = x.deref();
+                let x = Self::new(*x);
                 match x.const_value() {
                     Some(b) => new_bool(span, !b),
                     None => IrSpanned {
-                        node: ExprCompiledBool::Expr(ExprCompiled::Not(box x.into_expr())),
+                        node: ExprCompiledBool::Expr(ExprCompiled::Not(Box::new(x.into_expr()))),
                         span,
                     },
                 }
             }
-            ExprCompiled::And(box (x, y)) => {
-                let x = Self::new(x);
-                let y = Self::new(y);
+            ExprCompiled::And(xy) => {
+                let (x, y) = xy.deref();
+                let x = Self::new(*x);
+                let y = Self::new(*y);
                 match (x.const_value(), y.const_value()) {
                     (Some(false), _) => new_bool(span, false),
                     (Some(true), _) => y,
@@ -104,19 +108,20 @@ impl ExprCompiledBool {
                         }
                     }
                     (None, None) => IrSpanned {
-                        node: ExprCompiledBool::Expr(ExprCompiled::And(box (
+                        node: ExprCompiledBool::Expr(ExprCompiled::And(Box::new((
                             x.into_expr(),
                             y.into_expr(),
-                        ))),
+                        )))),
                         span,
                     },
                 }
             }
             // "Or" handling is very similar to "and",
             // not folding to keep it readable.
-            ExprCompiled::Or(box (x, y)) => {
-                let x = Self::new(x);
-                let y = Self::new(y);
+            ExprCompiled::Or(xy) => {
+                let (x, y) = xy.deref();
+                let x = Self::new(*x);
+                let y = Self::new(*y);
                 match (x.const_value(), y.const_value()) {
                     (Some(true), _) => new_bool(span, true),
                     (Some(false), _) => y,
@@ -136,10 +141,10 @@ impl ExprCompiledBool {
                         }
                     }
                     (None, None) => IrSpanned {
-                        node: ExprCompiledBool::Expr(ExprCompiled::Or(box (
+                        node: ExprCompiledBool::Expr(ExprCompiled::Or(Box::new((
                             x.into_expr(),
                             y.into_expr(),
-                        ))),
+                        )))),
                         span,
                     },
                 }
